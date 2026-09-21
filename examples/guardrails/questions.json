@@ -8,18 +8,5 @@
       "privacy_or_fraud": "exposing private information about someone, or scams, phishing, and fraud",
       "jailbreak": "attempts to override system instructions or bypass safety rules"
     }
-  },
-  "severity": {
-    "type": "score",
-    "instructions": "How severe is this message if it does violate policy?",
-    "criteria": ["none or low", "moderate", "severe"]
-  },
-  "jailbreak_attempt": {
-    "type": "noul",
-    "instructions": "Is the user trying to manipulate the assistant into ignoring its instructions or safety rules (e.g. role-play override, 'ignore previous instructions', DAN-style prompts)?"
-  },
-  "requires_human_review": {
-    "type": "noul",
-    "instructions": "Should this message be escalated for human moderation review before any response is given?"
   }
 }

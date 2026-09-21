@@ -1,13 +1,15 @@
 # Guardrail prompt classifier
 
-Classifies a user prompt into common LLM guardrail categories (safe, violence,
-self-harm, sexual content, hate/harassment, illegal weapons/drugs, fraud/scams,
-privacy/PII, jailbreak/prompt-injection, regulated advice), plus a severity
-score and two flags (`jailbreak_attempt`, `requires_human_review`), using
-laya-mlx's typed-decision API — no token generation, ~10-15ms per prompt on
-Apple Silicon.
+Classifies a user prompt into one of four high-level guardrail categories —
+`safe`, `harmful_content`, `privacy_or_fraud`, `jailbreak` — with a single
+typed `choice` question, using laya-mlx's typed-decision API (no token
+generation, ~20ms per prompt on Apple Silicon; see `load_test.py`).
 
-Edit `questions.json` to add, remove, or reword categories for your own policy.
+Edit `questions.json` to add, remove, or reword categories for your own
+policy. Each entry you add to `questions.json` is a separate question that
+laya-mlx answers in the same forward pass — more questions per prompt means
+more work per call, so keep the file to only what you actually need to act
+on.
 
 ## Run
 

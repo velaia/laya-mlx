@@ -20,13 +20,7 @@ QUESTIONS = json.loads((ROOT / "questions.json").read_text())
 
 def classify(agent, text: str) -> dict:
     result = agent.predict(text, QUESTIONS)
-    answers = result["answers"]
-    return {
-        "category": answers["category"],
-        "severity": answers["severity"],
-        "jailbreak_attempt": answers["jailbreak_attempt"],
-        "requires_human_review": answers["requires_human_review"],
-    }
+    return {"category": result["answers"]["category"]}
 
 
 def main():
