@@ -120,9 +120,14 @@ def run_process_mode(args, load_kwargs, per_worker):
 
 
 def run_thread_mode(args, load_kwargs, per_worker):
-    import laya_mlx as laya
+    if args.backend == "ollama":
+        import ollama_client
 
-    agent = laya.load(**load_kwargs)  # one shared model instance
+        agent = ollama_client.load(args.model, base_url=args.base_url)
+    else:
+        import laya_mlx as laya
+
+        agent = laya.load(**load_kwargs)  # one shared model instance
     barrier = threading.Barrier(args.workers)
     results = [None] * args.workers
     threads = [
@@ -149,7 +154,17 @@ def main():
     parser.add_argument("--dtype", default="float16", choices=["float32", "float16", "bfloat16"])
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--device", choices=["gpu", "cpu"], default=None)
+    parser.add_argument(
+        "--backend",
+        choices=["laya", "ollama"],
+        default="laya",
+        help="laya: laya-mlx checkpoint. ollama: a decision model served via Ollama's /v1/systemone "
+        "(clef, clef-flash, ...) -- process mode unsupported, Ollama is already a shared server.",
+    )
+    parser.add_argument("--base-url", default="http://localhost:11434", help="Ollama server URL (--backend ollama only).")
     args = parser.parse_args()
+    if args.backend == "ollama" and args.mode == "process":
+        parser.error("--backend ollama only supports --mode thread (Ollama's server already shares the model)")
 
     load_kwargs = dict(
         model_id_or_path=args.model,

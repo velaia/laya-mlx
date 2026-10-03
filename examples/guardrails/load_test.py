@@ -18,6 +18,7 @@ import time
 from pathlib import Path
 
 import laya_mlx as laya
+import ollama_client
 
 ROOT = Path(__file__).parent
 QUESTIONS = json.loads((ROOT / "questions.json").read_text())
@@ -38,16 +39,26 @@ def main():
     parser.add_argument("--compile", action="store_true")
     parser.add_argument("--cache-prompts", action="store_true")
     parser.add_argument("--device", choices=["gpu", "cpu"], default=None)
+    parser.add_argument(
+        "--backend",
+        choices=["laya", "ollama"],
+        default="laya",
+        help="laya: laya-mlx checkpoint. ollama: a decision model served via Ollama's /v1/systemone (clef, clef-flash, ...).",
+    )
+    parser.add_argument("--base-url", default=ollama_client.DEFAULT_BASE_URL, help="Ollama server URL (--backend ollama only).")
     args = parser.parse_args()
 
-    agent = laya.load(
-        args.model,
-        dtype=args.dtype,
-        batch_size=args.batch_size,
-        compile=args.compile,
-        cache_prompts=args.cache_prompts,
-        device=args.device,
-    )
+    if args.backend == "ollama":
+        agent = ollama_client.load(args.model, base_url=args.base_url)
+    else:
+        agent = laya.load(
+            args.model,
+            dtype=args.dtype,
+            batch_size=args.batch_size,
+            compile=args.compile,
+            cache_prompts=args.cache_prompts,
+            device=args.device,
+        )
 
     prompt_cycle = itertools.cycle(PROMPTS)
     for _ in range(args.warmup):
