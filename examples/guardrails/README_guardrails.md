@@ -34,7 +34,9 @@ Ollama added two decision models with the same `state` + typed `questions` ->
 Qwen3.5-9B) and [`clef`](https://ollama.com/library/clef) (27B), both from
 Cloudflare, Apache 2.0. They're wire-compatible with our `questions.json`
 schema, so `examples/guardrails/ollama_client.py` talks to them directly —
-no prompt engineering needed. Both measured on the same M1 Max above.
+no prompt engineering needed. Both measured on the same M1 Max above, and
+again hosted by Cloudflare via OpenRouter (`cloudflare/clef-flash`,
+`cloudflare/clef`).
 
 TypeSafe's [Jev](https://openrouter.ai/~typesafe/jev-latest) (`~typesafe/jev-latest`,
 resolved to `jev-1.13` at the time of measurement) speaks the same schema on
@@ -56,31 +58,44 @@ dataset evaluation below — we ran it ourselves.
 | laya-mlx (`aac6fef/laya-mlx`) | 421M | MLX, native | 49.6 prompts/s | 1x |
 | clef-flash | 9B | Ollama `/v1/systemone` | 1.8 prompts/s | ~28x slower |
 | clef | 27B | Ollama `/v1/systemone` | 0.5 prompts/s | ~99x slower |
-| Jev 1.13 | undisclosed | OpenRouter (hosted) | 3.3 prompts/s | ~15x slower |
+| clef-flash | 9B | OpenRouter (hosted by Cloudflare) | 3.0 prompts/s | ~17x slower |
+| clef | 27B | OpenRouter (hosted by Cloudflare) | 2.1 prompts/s | ~24x slower |
+| Jev 1.13 | undisclosed | OpenRouter (hosted by TypeSafe) | 3.3 prompts/s | ~15x slower |
 
-Cloudflare publishes 38.8ms median / 122.4ms p95 latency for clef-flash and
-209.3ms / 238.6ms for clef — roughly 15x faster than what we measured here.
-That gap is a hardware difference (their serving infra vs. this M1 Max via
-Ollama/Metal), not a discrepancy in the model; the clef-vs-clef-flash speed
-*ratio* we measured (~3.5x) is close to their published ~5.4x. As with the
-T4/Xeon estimates above, both clef models are GPU-bound on a single device —
-4-thread concurrency against the Ollama server does not raise the aggregate
-ceiling.
+Locally, both clef models are GPU-bound on a single device, as with the
+T4/Xeon estimates above — 4-thread concurrency against the Ollama server
+does not raise the aggregate ceiling.
 
-Jev is the opposite case: its single-request latency (278ms p50, 426ms p95)
-is mostly network round-trip, and the hosted backend scales with concurrent
-requests while per-request latency stays flat:
+The hosted backends are the opposite case: single-request latency is mostly
+network round-trip (this machine -> OpenRouter -> provider), and aggregate
+throughput scales with concurrent requests:
 
-| Jev, thread mode | Aggregate | p50 latency | p95 latency |
-|---|---:|---:|---:|
-| 1 thread | 3.3 prompts/s | 278ms | 426ms |
-| 4 threads | 14.4 prompts/s | 263ms | 385ms |
-| 16 threads | 50.9 prompts/s | 272ms | 407ms |
+| Model (OpenRouter) | Threads | Aggregate | p50 latency | p95 latency |
+|---|---:|---:|---:|---:|
+| clef-flash | 1 | 3.0 prompts/s | 324ms | 696ms |
+| clef-flash | 4 | 11.4 prompts/s | 306ms | 633ms |
+| clef-flash | 16 | 32.3 prompts/s | 424ms | 745ms |
+| clef | 1 | 2.1 prompts/s | 467ms | 748ms |
+| clef | 4 | 8.0 prompts/s | 404ms | 752ms |
+| clef | 16 | 33.1 prompts/s | 403ms | 687ms |
+| Jev 1.13 | 1 | 3.3 prompts/s | 278ms | 426ms |
+| Jev 1.13 | 4 | 14.4 prompts/s | 263ms | 385ms |
+| Jev 1.13 | 16 | 50.9 prompts/s | 272ms | 407ms |
 
 At 16 concurrent requests Jev roughly matches single-process laya-mlx
 throughput on the M1 Max (49.6 prompts/s), at ~50x laya's per-request
-latency. We didn't probe past 16 threads, so this isn't Jev's ceiling — it
-will be bounded by OpenRouter rate limits rather than local hardware.
+latency; both clef models reach ~two thirds of that. clef-flash's p50 rising
+at 16 threads (306 -> 424ms) suggests it was starting to queue, while Jev's
+and clef's latency stayed flat. We didn't probe past 16 threads, so none of
+these are ceilings — they'll be bounded by OpenRouter rate limits rather
+than local hardware.
+
+Cloudflare publishes 38.8ms median / 122.4ms p95 latency for clef-flash and
+209.3ms / 238.6ms for clef. Even hosted on Cloudflare via OpenRouter we
+measured roughly 8x (clef-flash) and 2x (clef) that from here, which points
+to the round-trip and OpenRouter's routing hop accounting for most of the
+latency — so an in-region caller would likely see much less. The gap is
+bigger locally (M1 Max via Ollama/Metal), where it's a hardware difference.
 
 ### Accuracy (identical random 150-row sample per dataset, seed=42)
 
@@ -92,6 +107,22 @@ will be bounded by OpenRouter rate limits rather than local hardware.
 | deepset-prompt-injections | jailbreak recall / F1 | 0.150 / 0.257 | 0.267 / 0.421 | 0.350 / 0.519 | **0.467 / 0.636** |
 | jbb-behaviors | accuracy | **0.694** | 0.686 | 0.636 | 0.661 |
 
+The clef columns are the local Ollama runs. The same models hosted by
+Cloudflare via OpenRouter, on the same sample, agree within a few rows:
+
+| Dataset | Metric | clef-flash local / hosted | clef local / hosted |
+|---|---|---:|---:|
+| wildguardmix | accuracy | 0.647 / 0.647 | 0.729 / 0.714 |
+| wildguardmix | jailbreak recall | 0.426 / 0.426 | 0.574 / 0.529 |
+| aegis-2.0 | accuracy | 0.782 / 0.782 | 0.810 / 0.803 |
+| deepset-prompt-injections | jailbreak recall / F1 | 0.267 / 0.421 both | 0.350 / 0.519 vs. 0.333 / 0.500 |
+| jbb-behaviors | accuracy | 0.686 / 0.702 | 0.636 / 0.628 |
+
+clef-flash differs on just 2 jbb-behaviors rows; clef shifts by 1-3 rows per
+dataset, slightly in the local build's favor. That's within the noise of a
+150-row sample and consistent with Ollama's local quantization differing
+from Cloudflare's serving build — the conclusions below hold for either.
+
 Takeaways:
 
 - Both clef models are substantially more accurate than laya-mlx on 3 of 4
@@ -102,19 +133,24 @@ Takeaways:
   jbb-behaviors, where laya-mlx edges out both — clef specifically
   over-predicts `harmful_content` on that dataset's `privacy_or_fraud` rows.
   This is a real result from the data, not a measurement artifact.
-- The accuracy gain is expensive: clef-flash costs ~28x the latency of
-  laya-mlx, clef ~99x. Whether that trade is worth it depends on whether a
-  deployment is latency-bound or accuracy-bound.
+- The accuracy gain is expensive: run locally, clef-flash costs ~28x the
+  latency of laya-mlx, clef ~99x. Hosted, the gap narrows to ~17x / ~24x
+  single-request and throughput scales with concurrency, but at a per-token
+  price. Whether that trade is worth it depends on whether a deployment is
+  latency-bound or accuracy-bound.
 - Jev ties clef on aegis-2.0 and is the best of the four at direct prompt
   injection (deepset: 0.467 recall, still with zero false positives). Its
   weaker wildguardmix jailbreak recall is largely a taxonomy disagreement,
   not a miss: 17 of the 68 adversarial rows went to `harmful_content`
-  rather than `jailbreak`, so they were still blocked. Our mapping labels every adversarial wildguardmix row
-  `jailbreak`, while Jev classifies many of them by the harmful content they
-  ask for, which is arguably also correct for a guardrail. Only 26 of 68
-  were actually let through as `safe`, vs. 24 for clef and 35 for clef-flash.
-- Jev is the only option here that scales out without local hardware, at a
-  per-token cost; laya-mlx is the only one that's both local and fast.
+  rather than `jailbreak`, so they were still blocked. Our mapping labels
+  every adversarial wildguardmix row `jailbreak`, while Jev classifies many
+  of them by the harmful content they ask for, which is arguably also
+  correct for a guardrail. Only 26 of 68 were actually let through as
+  `safe`, vs. 24 for clef and 35 for clef-flash.
+- Hosted, Jev is both the fastest (lowest latency, best scaling) and the
+  cheapest ($0.042/M input tokens vs. $0.09/M for clef-flash and $0.24/M for
+  clef at the time of measurement), with accuracy between clef-flash and
+  clef. laya-mlx remains the only option that's both local and fast.
 - An earlier pass sampled the first N rows of each dataset instead of a
   random sample and got misleading numbers (e.g. laya-mlx's wildguardmix
   jailbreak recall came out at 54% instead of ~18%) because these datasets
@@ -138,6 +174,13 @@ uv run --with pandas --with pyarrow --with requests examples/guardrails/evaluate
 uv run --with requests examples/guardrails/load_test.py --model '~typesafe/jev-latest' --backend openrouter --num 100
 uv run --with requests examples/guardrails/load_test_concurrent.py --model '~typesafe/jev-latest' --backend openrouter --mode thread --workers 16 --num 400
 uv run --with pandas --with pyarrow --with requests examples/guardrails/evaluate.py --model '~typesafe/jev-latest' --backend openrouter --limit 150
+
+# clef / clef-flash hosted by Cloudflare (OpenRouter's Zero Data Retention
+# requirement must be off for your account, or OpenRouter filters them out)
+uv run --with requests examples/guardrails/load_test.py --model cloudflare/clef-flash --backend openrouter --num 100
+uv run --with requests examples/guardrails/load_test_concurrent.py --model cloudflare/clef-flash --backend openrouter --mode thread --workers 16 --num 400
+uv run --with pandas --with pyarrow --with requests examples/guardrails/evaluate.py --model cloudflare/clef-flash --backend openrouter --limit 150
+uv run --with pandas --with pyarrow --with requests examples/guardrails/evaluate.py --model cloudflare/clef --backend openrouter --limit 150
 ```
 
 ## Estimated — other hardware (not measured)
