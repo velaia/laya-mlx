@@ -31,17 +31,18 @@ def main():
     parser.add_argument("--model", default="aac6fef/laya-mlx", help="Checkpoint to load.")
     parser.add_argument(
         "--backend",
-        choices=["laya", "ollama"],
+        choices=["laya", "ollama", "openrouter"],
         default="laya",
-        help="laya: laya-mlx checkpoint. ollama: a decision model served via Ollama's /v1/systemone (clef, clef-flash, ...).",
+        help="laya: laya-mlx checkpoint. ollama: a decision model served via Ollama's /v1/systemone (clef, clef-flash, ...). "
+        "openrouter: a System One model on OpenRouter (~typesafe/jev-latest, ...), needs OPENROUTER_API_KEY.",
     )
-    parser.add_argument("--base-url", default=ollama_client.DEFAULT_BASE_URL, help="Ollama server URL (--backend ollama only).")
+    parser.add_argument("--base-url", default=None, help="Server URL override (default: localhost Ollama / OpenRouter).")
     args = parser.parse_args()
 
     if not args.text and not args.batch:
         parser.error("pass --text or --batch")
 
-    agent = ollama_client.load(args.model, base_url=args.base_url) if args.backend == "ollama" else laya.load(args.model)
+    agent = ollama_client.load_backend(args.backend, args.model, args.base_url) if args.backend != "laya" else laya.load(args.model)
 
     if args.text:
         print(json.dumps(classify(agent, args.text), indent=2, ensure_ascii=False))

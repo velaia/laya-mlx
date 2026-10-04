@@ -89,8 +89,12 @@ def _process_worker(rank, num_prompts, warmup, load_kwargs, barrier, queue):
 
 def _thread_worker(rank, agent, num_prompts, warmup, barrier, results, index):
     prompt_cycle = itertools.cycle(PROMPTS)
-    for _ in range(warmup):
-        agent.predict(next(prompt_cycle), QUESTIONS)
+    try:
+        for _ in range(warmup):
+            agent.predict(next(prompt_cycle), QUESTIONS)
+    except Exception:
+        barrier.abort()  # otherwise the other workers wait at the barrier forever
+        raise
     barrier.wait()
     start = time.perf_counter()
     latencies = []
@@ -120,10 +124,10 @@ def run_process_mode(args, load_kwargs, per_worker):
 
 
 def run_thread_mode(args, load_kwargs, per_worker):
-    if args.backend == "ollama":
+    if args.backend != "laya":
         import ollama_client
 
-        agent = ollama_client.load(args.model, base_url=args.base_url)
+        agent = ollama_client.load_backend(args.backend, args.model, args.base_url)
     else:
         import laya_mlx as laya
 
@@ -156,15 +160,16 @@ def main():
     parser.add_argument("--device", choices=["gpu", "cpu"], default=None)
     parser.add_argument(
         "--backend",
-        choices=["laya", "ollama"],
+        choices=["laya", "ollama", "openrouter"],
         default="laya",
         help="laya: laya-mlx checkpoint. ollama: a decision model served via Ollama's /v1/systemone "
-        "(clef, clef-flash, ...) -- process mode unsupported, Ollama is already a shared server.",
+        "(clef, clef-flash, ...). openrouter: a System One model on OpenRouter (~typesafe/jev-latest, ...), "
+        "needs OPENROUTER_API_KEY. Remote backends are thread mode only -- the server already shares the model.",
     )
-    parser.add_argument("--base-url", default="http://localhost:11434", help="Ollama server URL (--backend ollama only).")
+    parser.add_argument("--base-url", default=None, help="Server URL override (default: localhost Ollama / OpenRouter).")
     args = parser.parse_args()
-    if args.backend == "ollama" and args.mode == "process":
-        parser.error("--backend ollama only supports --mode thread (Ollama's server already shares the model)")
+    if args.backend != "laya" and args.mode == "process":
+        parser.error(f"--backend {args.backend} only supports --mode thread (the server already shares the model)")
 
     load_kwargs = dict(
         model_id_or_path=args.model,
